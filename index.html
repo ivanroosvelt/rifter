@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rifter</title>
+<style>
+  :root { --bg:#111418; --panel:#1a1f26; --fg:#e6e6e6; --mute:#8a94a3; --acc:#ffb84d }
+  * { box-sizing:border-box }
+  body { margin:0; font:14px system-ui,sans-serif; background:var(--bg); color:var(--fg) }
+  form { display:flex; gap:8px; padding:12px; background:var(--panel) }
+  input, button { font:inherit; color:inherit; background:#262d36; border:1px solid #333c48; border-radius:6px; padding:6px 10px }
+  input { flex:1; min-width:0 }
+  button { cursor:pointer }
+  main { display:grid; grid-template-columns:1fr 300px; gap:12px; padding:12px }
+  #status { color:var(--mute); margin-bottom:8px; min-height:1.2em }
+  .view { position:relative; background:var(--panel); border-radius:6px; margin-bottom:12px; cursor:crosshair; touch-action:none; overflow:hidden }
+  .view canvas { display:block; width:100% }
+  .ph { position:absolute; top:0; bottom:0; width:2px; background:var(--acc); pointer-events:none }
+  .drag { position:absolute; top:0; bottom:0; background:#ffffff30; pointer-events:none; display:none }
+  #results { list-style:none; margin:0; padding:0 12px; background:var(--panel) }
+  #results li.pv b::before { content:'⏳ ' }
+  #results li.pv.on b::before { content:'♪ ' }
+  #results li { padding:8px; border-top:1px solid #333c48; cursor:pointer }
+  #results li:hover { background:#ffffff14 }
+  #results span { color:var(--mute); font-size:12px }
+  .bar { display:flex; gap:12px; align-items:center }
+  #time { font-variant-numeric:tabular-nums; font-size:18px }
+  .help { color:var(--mute); line-height:1.5 }
+  #tree { background:var(--panel); border-radius:6px; padding:8px; align-self:start; overflow:auto; max-height:calc(100vh - 90px) }
+  #tree ul { list-style:none; margin:0; padding-left:12px }
+  #tree > ul { padding:0 }
+  .row { display:flex; gap:6px; align-items:center; padding:3px 6px; border-radius:4px; cursor:pointer }
+  .row.sel { background:#ffffff1f }
+  .row i { width:10px; height:10px; border-radius:2px; flex:none }
+  .row .t { color:var(--mute); font-size:12px; margin-left:auto; font-variant-numeric:tabular-nums; white-space:nowrap }
+  .row kbd { color:var(--mute); font:11px ui-monospace,monospace }
+  .row button { padding:0 6px; border:0; background:none; color:var(--mute) }
+  @media (max-width:800px) { main { grid-template-columns:1fr } }
+  #welcome { position:fixed; inset:0; z-index:10; background:#000000d9; display:flex; align-items:flex-end; justify-content:center; padding:16px; transition:background .2s }
+  #welcome[hidden] { display:none }
+  #welcome.spotting { background:none }
+  #spot { position:fixed; border-radius:8px; box-shadow:0 0 0 100vmax #000000d9, 0 0 0 2px var(--acc); pointer-events:none; display:none; transition:all .2s }
+  #welcome .card { position:relative; width:min(860px,100%); max-height:75vh; overflow:auto; background:var(--panel); border:1px solid #333c48; border-radius:10px; padding:20px 24px; display:grid; grid-template-columns:1fr 1fr; gap:4px 28px; transition:opacity .2s }
+  #welcome.spotting .card { opacity:.25 }
+  #welcome h1 { grid-column:1/-1; margin:0; font-size:22px }
+  #welcome h1 + p { grid-column:1/-1; margin:0 0 8px; color:var(--mute) }
+  #welcome h2 { margin:12px 0 6px; font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--acc) }
+  #welcome ul { list-style:none; margin:0; padding:0 }
+  #welcome li { padding:5px 8px; border-radius:6px; color:var(--mute); line-height:1.4 }
+  #welcome li b { color:var(--fg) }
+  #welcome li[data-t] { cursor:help }
+  #welcome li[data-t]:hover { background:#ffffff14 }
+  #welcome kbd { background:#262d36; border:1px solid #333c48; border-radius:4px; padding:1px 6px; font:12px ui-monospace,monospace; color:var(--fg) }
+  #welcome .go { grid-column:1/-1; justify-self:end; margin-top:12px; background:var(--acc); color:#111; border:0; font-weight:600 }
+  #help { padding:6px 12px }
+  @media (max-width:800px) { #welcome .card { grid-template-columns:1fr } }
+</style>
+</head>
+<body>
+<form id="f"><input id="q" placeholder="URL de YouTube o búsqueda (ej: hotel california eagles)"><button>Buscar</button><button type="button" id="help" title="Guía (?)">?</button></form>
+<ul id="results"></ul>
+<main>
+  <section>
+    <div id="status"></div>
+    <div class="view" id="ov"><canvas></canvas><div class="drag"></div><div class="ph"></div></div>
+    <div class="view" id="zm"><canvas></canvas><div class="drag"></div><div class="ph"></div></div>
+    <div class="bar"><button id="play">▶</button><span id="time">0:00.0</span><b id="selname"></b></div>
+    <p class="help">
+      Onda superior: canción completa. Onda inferior: zoom de la sección en bucle.<br>
+      <b>Arrastrar</b> sobre la onda crea un checkpoint; se anida solo dentro del que lo contiene (y adopta los que queden dentro).<br>
+      <b>Click</b> en la onda: saltar · <b>click</b> en una barra o en el árbol: repetir esa sección · <b>doble click</b> en el árbol: renombrar.<br>
+      <b>Espacio</b> play/pausa · <b>[</b> marca inicio · <b>]</b> crea sección hasta el cursor (tocando en vivo).<br>
+      <b>← →</b> sección anterior/siguiente · <b>↑</b> subir al checkpoint padre · <b>↓</b> entrar al primer hijo.<br>
+      <b>1–9</b> periodo n · <b>⇧1–9</b> fragmento n del periodo actual · <b>0</b> canción completa. Los checkpoints se guardan solos en el servidor.
+    </p>
+  </section>
+  <aside id="tree"></aside>
+</main>
+<div id="welcome" hidden>
+  <div id="spot"></div>
+  <div class="card">
+    <h1>Bienvenido a Rifter</h1>
+    <p>Practica con canciones de YouTube: marca secciones y repítelas en bucle sin cortes. Pasa el mouse por las secciones para verlas en pantalla.</p>
+    <div>
+      <h2>Secciones</h2>
+      <ul>
+        <li data-t="#f"><b>Buscador</b> · pega una URL de YouTube o escribe una búsqueda. Al pasar el mouse por un resultado suena una vista previa de 15 s.</li>
+        <li data-t="#ov"><b>Onda superior</b> · la canción completa.</li>
+        <li data-t="#zm"><b>Onda inferior</b> · zoom de la sección que se repite en bucle.</li>
+        <li data-t=".bar"><b>Reproductor</b> · play/pausa, tiempo y sección actual.</li>
+        <li data-t="#tree"><b>Árbol de checkpoints</b> · canción → periodos → fragmentos. Click para repetir; doble click para renombrar; ✕ para borrar (los hijos suben un nivel).</li>
+      </ul>
+      <h2>Con el mouse</h2>
+      <ul>
+        <li><b>Arrastrar</b> sobre la onda crea un checkpoint; se anida solo dentro del que lo contiene y adopta los que queden dentro.</li>
+        <li><b>Click</b> en la onda salta a ese punto; click en una barra de color repite esa sección.</li>
+      </ul>
+    </div>
+    <div>
+      <h2>Teclado</h2>
+      <ul>
+        <li><kbd>Espacio</kbd> play / pausa</li>
+        <li><kbd>1</kbd>–<kbd>9</kbd> periodo n · <kbd>0</kbd> canción completa</li>
+        <li><kbd>⇧</kbd> + <kbd>1</kbd>–<kbd>9</kbd> fragmento n del periodo actual</li>
+        <li><kbd>←</kbd> <kbd>→</kbd> sección anterior / siguiente</li>
+        <li><kbd>↑</kbd> checkpoint padre · <kbd>↓</kbd> primer hijo</li>
+        <li><kbd>[</kbd> marca el inicio, luego <kbd>]</kbd> crea la sección mientras suena</li>
+        <li><kbd>?</kbd> abre esta guía · <kbd>Esc</kbd> la cierra</li>
+      </ul>
+      <h2>Conviene saber</h2>
+      <ul>
+        <li>Los checkpoints se guardan solos en el servidor.</li>
+        <li>La URL (<kbd>#id</kbd>) recarga la misma canción; compártela o guárdala.</li>
+        <li>La primera descarga tarda unos segundos; después queda en caché.</li>
+        <li>Si YouTube deja de descargar, reconstruye la imagen para actualizar yt-dlp.</li>
+      </ul>
+    </div>
+    <button class="go">Empezar</button>
+  </div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const COLORS = ['#5b8def', '#4dc9a0', '#ffb84d', '#e86a92', '#a27bf0', '#5fc3e4'];
+const LANE = 18;
+let ctx, buf, root, sel, songId, src = null, startedAt = 0, offset = 0, mark = null;
+
+const views = [
+  { el: $('#ov'), h: 90, range: () => [0, root.end] },
+  { el: $('#zm'), h: 160, range: () => [sel.start, sel.end] },
+];
+
+const status = t => $('#status').textContent = t;
+const fmt = t => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, '0')}`;
+const depthOf = r => r.children.length ? 1 + Math.max(...r.children.map(depthOf)) : 0;
+const parentOf = (r, p = root) => p.children.includes(r) ? p : p.children.map(c => parentOf(r, c)).find(Boolean);
+const hit = (rs, dep, t) => { for (const r of rs) if (t >= r.start && t < r.end) return dep ? hit(r.children, dep - 1, t) : r; };
+const save = () => fetch(`data/${songId}.json`, { method: 'PUT', body: JSON.stringify(root) })
+  .then(r => { if (!r.ok) throw 0; }).catch(() => status('⚠ No se pudieron guardar los checkpoints'));
+
+async function load(q) {
+  ctx ??= new AudioContext();
+  stop();
+  status('Descargando audio…');
+  try {
+    const res = await fetch('/api/load?q=' + encodeURIComponent(q));
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error);
+    status('Procesando audio…');
+    buf = await ctx.decodeAudioData(await (await fetch(`data/${j.id}.mp3`)).arrayBuffer());
+    songId = j.id;
+    location.hash = j.id;
+    const saved = await fetch(`data/${j.id}.json`, { cache: 'no-store' });
+    root = saved.ok ? await saved.json() : { name: j.title, start: 0, end: buf.duration, children: [] };
+    sel = root;
+    offset = 0;
+    status(j.title);
+    render();
+  } catch (e) {
+    status('Error: ' + e.message);
+  }
+}
+
+// --- playback: native sample-accurate loop over the selected section ---
+function pos() {
+  if (!src) return offset;
+  const p = offset + ctx.currentTime - startedAt;
+  return p < sel.end ? p : sel.start + (p - sel.start) % (sel.end - sel.start);
+}
+function play(at = offset) {
+  stop();
+  if (!(at >= sel.start && at < sel.end)) at = sel.start;
+  ctx.resume();
+  src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.loop = true;
+  src.loopStart = sel.start;
+  src.loopEnd = sel.end;
+  src.connect(ctx.destination);
+  src.start(0, at);
+  startedAt = ctx.currentTime;
+  offset = at;
+  $('#play').textContent = '⏸';
+}
+function stop() {
+  if (!src) return;
+  offset = pos();
+  src.stop();
+  src = null;
+  $('#play').textContent = '▶';
+}
+function select(r) {
+  const playing = !!src;
+  stop();
+  sel = r;
+  offset = r.start;
+  if (playing) play();
+  render();
+}
+function seek(t) {
+  if (t < sel.start || t >= sel.end) { sel = root; render(); }
+  src ? play(t) : offset = t;
+}
+
+// --- checkpoints tree ---
+function add(s, e) {
+  let parent = root, lvl = 0;
+  for (let c; (c = parent.children.find(c => c.start <= s && e <= c.end)); lvl++) parent = c;
+  const r = {
+    name: `${lvl ? 'Fragmento' : 'Periodo'} ${parent.children.length + 1}`,
+    start: s, end: e,
+    children: parent.children.filter(c => s <= c.start && c.end <= e),
+  };
+  parent.children = parent.children.filter(c => !r.children.includes(c)).concat(r).sort((a, b) => a.start - b.start);
+  save();
+  select(r);
+}
+function del(r) {
+  const p = parentOf(r);
+  p.children.splice(p.children.indexOf(r), 1, ...r.children); // sub-checkpoints move up a level
+  save();
+  select(sel === r ? p : sel);
+}
+
+// --- drawing ---
+function draw(v) {
+  const cv = v.el.querySelector('canvas'), [t0, t1] = v.range(), dpr = devicePixelRatio;
+  const W = cv.clientWidth, H = v.h + depthOf(root) * LANE;
+  cv.style.height = H + 'px';
+  cv.width = W * dpr;
+  cv.height = H * dpr;
+  const g = cv.getContext('2d');
+  g.scale(dpr, dpr);
+  const X = t => (t - t0) / (t1 - t0) * W;
+  Object.assign(v, { t0, t1, W });
+
+  g.fillStyle = '#ffffff12';
+  g.fillRect(X(sel.start), 0, X(sel.end) - X(sel.start), v.h);
+
+  const data = buf.getChannelData(0), sr = buf.sampleRate, spp = (t1 - t0) * sr / W, mid = v.h / 2;
+  g.fillStyle = COLORS[0];
+  for (let x = 0; x < W; x++) {
+    const a = Math.floor(t0 * sr + x * spp), b = Math.min(data.length, Math.floor(t0 * sr + (x + 1) * spp));
+    const step = Math.max(1, (b - a) / 2000 | 0); // ponytail: sampled peaks, fine for display
+    let lo = 0, hi = 0;
+    for (let i = a; i < b; i += step) { const s = data[i]; if (s < lo) lo = s; if (s > hi) hi = s; }
+    g.fillRect(x, mid - hi * mid, 1, Math.max(1, (hi - lo) * mid));
+  }
+
+  g.font = '12px system-ui';
+  (function lane(rs, dep) {
+    for (const r of rs) {
+      const x0 = X(r.start), x1 = X(r.end), y = v.h + dep * LANE;
+      if (x1 > 0 && x0 < W) {
+        g.fillStyle = COLORS[(dep + 1) % COLORS.length] + (r === sel ? '' : '88');
+        g.fillRect(x0 + 1, y + 1, x1 - x0 - 2, LANE - 2);
+        g.save();
+        g.beginPath(); g.rect(x0, y, x1 - x0, LANE); g.clip();
+        g.fillStyle = '#000';
+        g.fillText(r.name, Math.max(x0, 0) + 4, y + 13);
+        g.restore();
+      }
+      lane(r.children, dep + 1);
+    }
+  })(root.children, 0);
+}
+
+function item(r, dep, i = 0) {
+  const li = document.createElement('li'), row = document.createElement('div');
+  row.className = 'row' + (r === sel ? ' sel' : '');
+  row.innerHTML = `<i style="background:${COLORS[dep % COLORS.length]}"></i><span></span><kbd>${i < 9 ? ['0', i + 1, '⇧' + (i + 1)][dep] ?? '' : ''}</kbd><span class="t">${fmt(r.start)}–${fmt(r.end)}</span>`;
+  row.children[1].textContent = r.name;
+  row.onclick = () => select(r);
+  row.ondblclick = () => { const n = prompt('Nombre', r.name); if (n) { r.name = n; save(); render(); } };
+  if (r !== root) {
+    const x = document.createElement('button');
+    x.textContent = '✕';
+    x.title = 'Borrar';
+    x.onclick = e => { e.stopPropagation(); del(r); };
+    row.append(x);
+  }
+  li.append(row);
+  if (r.children.length) {
+    const ul = document.createElement('ul');
+    ul.append(...r.children.map((c, i) => item(c, dep + 1, i)));
+    li.append(ul);
+  }
+  return li;
+}
+
+function render() {
+  views.forEach(draw);
+  const ul = document.createElement('ul');
+  ul.append(item(root, 0));
+  $('#tree').replaceChildren(ul);
+  $('#selname').textContent = sel.name;
+}
+
+// --- input ---
+for (const v of views) {
+  const drag = v.el.querySelector('.drag');
+  v.el.onpointerdown = e => {
+    if (!buf) return;
+    const rect = v.el.getBoundingClientRect(), x0 = e.clientX - rect.left, y = e.clientY - rect.top;
+    const T = x => v.t0 + Math.min(Math.max(x, 0), v.W) / v.W * (v.t1 - v.t0);
+    let x1 = x0;
+    v.el.setPointerCapture(e.pointerId);
+    v.el.onpointermove = e => {
+      x1 = e.clientX - rect.left;
+      drag.style.display = 'block';
+      drag.style.left = Math.min(x0, x1) + 'px';
+      drag.style.width = Math.abs(x1 - x0) + 'px';
+    };
+    v.el.onpointerup = () => {
+      v.el.onpointermove = v.el.onpointerup = null;
+      drag.style.display = 'none';
+      if (Math.abs(x1 - x0) > 4) return add(T(Math.min(x0, x1)), T(Math.max(x0, x1)));
+      const r = y > v.h && hit(root.children, Math.floor((y - v.h) / LANE), T(x0));
+      r ? select(r) : seek(T(x0));
+    };
+  };
+}
+
+// search-result hover preview, played through the same AudioContext (no autoplay block)
+let pvTimer, pvSrc, pvToken = 0;
+function stopPreview() {
+  clearTimeout(pvTimer);
+  pvToken++;
+  pvSrc?.stop();
+  pvSrc = null;
+  document.querySelectorAll('#results li.pv').forEach(li => li.classList.remove('pv', 'on'));
+}
+
+$('#f').onsubmit = async e => {
+  e.preventDefault();
+  const q = $('#q').value.trim();
+  if (!q) return;
+  if (/^https?:\/\//.test(q)) return load(q);
+  ctx ??= new AudioContext(); // created inside the user gesture
+  status('Buscando…');
+  try {
+    const list = await (await fetch('/api/search?q=' + encodeURIComponent(q))).json();
+    status(list.length ? `${list.length} resultados — elige uno` : 'Sin resultados');
+    $('#results').onmouseleave = stopPreview;
+    $('#results').replaceChildren(...list.map(r => {
+      const li = document.createElement('li');
+      li.innerHTML = '<b></b> <span></span>';
+      li.children[0].textContent = r.title;
+      li.children[1].textContent = `${r.channel} · ${r.duration}`;
+      // hover preview starting a third of the way in (usually past the intro)
+      const start = r.duration.split(':').reduce((a, b) => a * 60 + +b, 0) / 3 | 0;
+      li.onmouseenter = () => {
+        stopPreview();
+        const token = pvToken;
+        pvTimer = setTimeout(async () => {
+          li.classList.add('pv');
+          try {
+            const res = await fetch(`/api/preview?id=${r.id}&start=${start}`);
+            const b = await ctx.decodeAudioData(await res.arrayBuffer());
+            if (token !== pvToken) return;
+            stop();
+            pvSrc = ctx.createBufferSource();
+            pvSrc.buffer = b;
+            pvSrc.connect(ctx.destination);
+            pvSrc.start();
+            li.classList.add('on');
+          } catch {
+            li.classList.remove('pv');
+          }
+        }, 300);
+      };
+      li.onclick = () => { stopPreview(); $('#results').replaceChildren(); load('https://youtu.be/' + r.id); };
+      return li;
+    }));
+  } catch (e) {
+    status('Error: ' + e.message);
+  }
+};
+$('#play').onclick = () => buf && (src ? stop() : play());
+onresize = () => buf && render();
+onkeydown = e => {
+  if (!buf || e.target.tagName === 'INPUT') return;
+  if (e.code === 'Space') { e.preventDefault(); document.activeElement.blur(); src ? stop() : play(); }
+  if (e.key.startsWith('Arrow')) {
+    e.preventDefault();
+    const p = parentOf(sel), sib = p ? p.children : [sel], i = sib.indexOf(sel);
+    const next = { ArrowUp: p, ArrowDown: sel.children[0], ArrowLeft: sib[i - 1], ArrowRight: sib[i + 1] }[e.key];
+    if (next) select(next);
+  }
+  const n = /^Digit(\d)$/.exec(e.code)?.[1];
+  if (n === '0') select(root);
+  else if (n) {
+    let per = sel; // the period (level 1) containing the selection
+    while (per && parentOf(per) !== root) per = parentOf(per);
+    const r = e.shiftKey ? per?.children[n - 1] : root.children[n - 1];
+    if (r) select(r);
+  }
+  if (e.key === '[') { mark = pos(); status(`Inicio marcado en ${fmt(mark)} — pulsa ] para cerrar`); }
+  if (e.key === ']' && mark != null) { const p = pos(); if (p > mark) add(mark, p); mark = null; status(root.name); }
+};
+
+(function tick() {
+  if (buf) {
+    const p = pos();
+    $('#time').textContent = fmt(p);
+    for (const v of views) {
+      const ph = v.el.querySelector('.ph'), x = (p - v.t0) / (v.t1 - v.t0) * v.W;
+      ph.style.display = x >= 0 && x <= v.W ? '' : 'none';
+      ph.style.left = x + 'px';
+    }
+  }
+  requestAnimationFrame(tick);
+})();
+
+// --- welcome overlay: dark "shadow" with a spotlight on the section hovered in the guide ---
+const W = $('#welcome'), spot = $('#spot');
+const guide = open => { W.hidden = !open; W.classList.remove('spotting'); spot.style.display = ''; };
+W.onclick = e => { if (e.target === W || e.target.classList.contains('go')) guide(false); };
+$('#help').onclick = () => guide(true);
+W.querySelectorAll('li[data-t]').forEach(li => {
+  li.onmouseenter = () => {
+    const r = $(li.dataset.t).getBoundingClientRect();
+    Object.assign(spot.style, { display: 'block', left: r.left - 4 + 'px', top: r.top - 4 + 'px', width: r.width + 8 + 'px', height: r.height + 8 + 'px' });
+    W.classList.add('spotting');
+  };
+  li.onmouseleave = () => { W.classList.remove('spotting'); spot.style.display = ''; };
+});
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === '?') guide(W.hidden);
+  else if (e.key === 'Escape') guide(false);
+});
+if (!location.hash) guide(true);
+
+if (location.hash) load($('#q').value = 'https://youtu.be/' + location.hash.slice(1));
+</script>
+</body>
+</html>
