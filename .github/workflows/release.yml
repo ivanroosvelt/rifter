@@ -15,7 +15,7 @@ jobs:
       matrix:
         include:
           - { os: macos-14, ytdlp: yt-dlp_macos, deno: deno-aarch64-apple-darwin }
-          - { os: macos-13, ytdlp: yt-dlp_macos, deno: deno-x86_64-apple-darwin }
+          - { os: macos-15-intel, ytdlp: yt-dlp_macos, deno: deno-x86_64-apple-darwin }
           - { os: ubuntu-latest, ytdlp: yt-dlp_linux, deno: deno-x86_64-unknown-linux-gnu }
           - { os: windows-latest, ytdlp: yt-dlp.exe, deno: deno-x86_64-pc-windows-msvc }
     runs-on: ${{ matrix.os }}
