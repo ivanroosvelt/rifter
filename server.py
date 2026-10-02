@@ -110,4 +110,4 @@ class Handler(SimpleHTTPRequestHandler):
 if __name__ == '__main__':
     os.makedirs('data/pv', exist_ok=True)
     threading.Thread(target=sweep, daemon=True).start()
-    ThreadingHTTPServer(('0.0.0.0', 8000), Handler).serve_forever()
+    ThreadingHTTPServer((os.environ.get('HOST', '0.0.0.0'), int(os.environ.get('PORT', 8000))), Handler).serve_forever()
