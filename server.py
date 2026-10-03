@@ -1,3 +1,7 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["yt-dlp[default]"]
+# ///
 import json
 import os
 import re

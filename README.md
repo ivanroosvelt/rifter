@@ -16,10 +16,11 @@ Instaladores para macOS, Linux y Windows en [Releases](https://github.com/ivanro
 
 ## Arrancar
 
-Requiere Docker.
+Requiere [uv](https://docs.astral.sh/uv/), `ffmpeg` y `deno` en el PATH (uv instala yt-dlp solo).
 
 ```sh
-docker compose up -d --build
+brew install ffmpeg deno   # macOS
+uv run server.py
 ```
 
 Abre http://localhost:8000
@@ -63,8 +64,8 @@ La URL (`#<id>`) recarga la misma canción.
 
 ## Problemas
 
-Si YouTube deja de descargar, actualiza yt-dlp reconstruyendo la imagen:
+Si YouTube deja de descargar, actualiza yt-dlp refrescando el caché de uv:
 
 ```sh
-docker compose build --no-cache && docker compose up -d
+uv run --refresh server.py
 ```
