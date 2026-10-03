@@ -2,6 +2,18 @@
 
 Reproductor para practicar instrumentos con canciones de YouTube. Muestra la onda completa de la canción, permite marcar checkpoints anidados (canción → periodos → fragmentos) y repetir cualquiera en bucle sin cortes.
 
+## Descargar (app de escritorio)
+
+Instaladores para macOS, Linux y Windows en [Releases](https://github.com/ivanroosvelt/rifter/releases).
+
+> **macOS:** la app no está firmada por Apple y macOS dirá que está "dañada". Después de arrastrarla a Aplicaciones, ejecuta una vez en la terminal:
+>
+> ```sh
+> xattr -cr /Applications/Rifter.app
+> ```
+>
+> y ábrela normal. En Windows, SmartScreen: "Más información → Ejecutar de todos modos".
+
 ## Arrancar
 
 Requiere Docker.
