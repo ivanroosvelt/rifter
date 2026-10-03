@@ -5,6 +5,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -30,8 +31,9 @@ def sweep():
             for e in os.scandir(d):
                 if e.name.endswith('.mp3') and e.is_file() and now - e.stat().st_mtime > ttl:
                     os.remove(e.path)
-                    if d == 'data' and os.path.exists(j := e.path[:-4] + '.json'):
-                        os.remove(j)  # checkpoints die with their song
+                    for ext in ('.json', '.structure.json', '.lyrics.json') if d == 'data' else ():
+                        if os.path.exists(j := e.path[:-4] + ext):
+                            os.remove(j)  # checkpoints and AI suggestions die with their song
         time.sleep(3600)
 
 
@@ -42,6 +44,8 @@ class Handler(SimpleHTTPRequestHandler):
         args = parse_qs(url.query)
         if url.path == '/api/preview':
             return self.preview(args.get('id', [''])[0], args.get('start', ['0'])[0])
+        if url.path == '/api/split':
+            return self.split(args.get('id', [''])[0], args.get('mode', [''])[0])
         if re.fullmatch(r'/data/(pv/)?[\w-]+\.mp3', url.path):
             touch(url.path[1:])
         if url.path not in ('/api/load', '/api/search'):
@@ -85,6 +89,26 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_response(302)
         self.send_header('Location', f'/data/pv/{vid}.mp3')
         self.end_headers()
+
+    def split(self, vid, mode):
+        # AI checkpoint suggestions: runs ai/<mode>.py through uv (heavy deps stay out of the server), cached per song
+        if not re.fullmatch(r'[\w-]{1,64}', vid) or mode not in ('structure', 'lyrics') or not os.path.exists(f'data/{vid}.mp3'):
+            return self.reply(400, {'error': 'Petición inválida'})
+        cache = f'data/{vid}.{mode}.json'
+        if not os.path.exists(cache):
+            script = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ai', f'{mode}.py')
+            if not os.path.exists(script) or not shutil.which('uv'):
+                return self.reply(501, {'error': 'La IA requiere ejecutar Rifter con uv desde el repositorio'})
+            try:
+                p = subprocess.run(['uv', 'run', script, f'data/{vid}.mp3'], capture_output=True, text=True, timeout=3600)
+            except subprocess.TimeoutExpired:
+                return self.reply(504, {'error': 'El análisis tardó demasiado'})
+            if p.returncode:
+                return self.reply(502, {'error': (p.stderr.strip().splitlines() or ['El análisis falló'])[-1]})
+            with open(cache, 'w') as f:
+                f.write(p.stdout)
+        with open(cache) as f:
+            self.reply(200, json.load(f))
 
     def do_PUT(self):
         # Saves the checkpoints of a song as data/<id>.json

@@ -47,6 +47,15 @@ Abre http://localhost:8000
 
 Doble click en el árbol: renombrar. ✕: borrar (sus hijos suben un nivel).
 
+### Dividir con IA
+
+El selector **✨ Dividir con IA** reemplaza los checkpoints por una sugerencia que luego puedes editar:
+
+- **Por estructura y compases** ([allin1](https://github.com/mir-aidj/all-in-one)): periodos = estrofa, estribillo, puente…; fragmentos = grupos de 4 compases.
+- **Por la letra** ([faster-whisper](https://github.com/SYSTRAN/faster-whisper)): fragmentos = cada línea cantada; periodos = bloques separados por partes instrumentales.
+
+Solo funciona con `uv run server.py` (no en la app de escritorio). La primera vez uv descarga los modelos (~2 GB para allin1) y el análisis tarda unos minutos; el resultado queda en `data/<id>.<modo>.json`.
+
 ## Datos
 
 Todo queda en `./data`:

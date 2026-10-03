@@ -9,7 +9,7 @@
   * { box-sizing:border-box }
   body { margin:0; font:14px system-ui,sans-serif; background:var(--bg); color:var(--fg) }
   form { display:flex; gap:8px; padding:12px; background:var(--panel) }
-  input, button { font:inherit; color:inherit; background:#262d36; border:1px solid #333c48; border-radius:6px; padding:6px 10px }
+  input, button, select { font:inherit; color:inherit; background:#262d36; border:1px solid #333c48; border-radius:6px; padding:6px 10px }
   input { flex:1; min-width:0 }
   button { cursor:pointer }
   main { display:grid; grid-template-columns:1fr 300px; gap:12px; padding:12px }
@@ -65,7 +65,13 @@
     <div id="status"></div>
     <div class="view" id="ov"><canvas></canvas><div class="drag"></div><div class="ph"></div></div>
     <div class="view" id="zm"><canvas></canvas><div class="drag"></div><div class="ph"></div></div>
-    <div class="bar"><button id="play">▶</button><span id="time">0:00.0</span><b id="selname"></b></div>
+    <div class="bar"><button id="play">▶</button><span id="time">0:00.0</span><b id="selname"></b>
+      <select id="ai" title="Dividir la canción con IA (reemplaza los checkpoints)">
+        <option value="">✨ Dividir con IA…</option>
+        <option value="structure">Por estructura y compases (allin1, ~½× la duración)</option>
+        <option value="lyrics">Por la letra (Whisper, ~½× la duración)</option>
+      </select>
+    </div>
     <p class="help">
       Onda superior: canción completa. Onda inferior: zoom de la sección en bucle.<br>
       <b>Arrastrar</b> sobre la onda crea un checkpoint; se anida solo dentro del que lo contiene (y adopta los que queden dentro).<br>
@@ -377,6 +383,27 @@ $('#f').onsubmit = async e => {
   }
 };
 $('#play').onclick = () => buf && (src ? stop() : play());
+$('#ai').onchange = async e => {
+  const mode = e.target.value, id = songId;
+  e.target.value = '';
+  if (!buf || !mode || root.children.length && !confirm('¿Reemplazar los checkpoints actuales por los de la IA?')) return;
+  e.target.disabled = true;
+  status('Analizando con IA… la primera vez tarda unos minutos');
+  try {
+    const res = await fetch(`/api/split?id=${id}&mode=${mode}`);
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error);
+    if (id !== songId) return; // another song was loaded meanwhile
+    root.children = j;
+    save();
+    select(root);
+    status(root.name);
+  } catch (err) {
+    status('Error: ' + err.message);
+  } finally {
+    e.target.disabled = false;
+  }
+};
 onresize = () => buf && render();
 onkeydown = e => {
   if (!buf || e.target.tagName === 'INPUT') return;
