@@ -15,7 +15,7 @@
   main { display:grid; grid-template-columns:1fr 300px; gap:12px; padding:12px }
   #status { color:var(--mute); margin-bottom:8px; min-height:1.2em }
   .view { position:relative; background:var(--panel); border-radius:6px; margin-bottom:12px; cursor:crosshair; touch-action:none; overflow:hidden }
-  .view canvas { display:block; width:100% }
+  .view canvas { display:block; width:100%; height:50px }
   .ph { position:absolute; top:0; bottom:0; width:2px; background:var(--acc); pointer-events:none }
   .drag { position:absolute; top:0; bottom:0; background:#ffffff30; pointer-events:none; display:none }
   #results { list-style:none; margin:0; padding:0 12px; background:var(--panel) }
@@ -37,7 +37,7 @@
   .row kbd { color:var(--mute); font:11px ui-monospace,monospace }
   .row button { padding:0 6px; border:0; background:none; color:var(--mute) }
   @media (max-width:800px) { main { grid-template-columns:1fr } }
-  #welcome { position:fixed; inset:0; z-index:10; background:#000000d9; display:flex; align-items:flex-end; justify-content:center; padding:16px; transition:background .2s }
+  #welcome { position:fixed; inset:0; z-index:10; background:#000000d9; display:flex; align-items:center; justify-content:center; padding:16px; transition:background .2s }
   #welcome[hidden] { display:none }
   #welcome.spotting { background:none }
   #spot { position:fixed; border-radius:8px; box-shadow:0 0 0 100vmax #000000d9, 0 0 0 2px var(--acc); pointer-events:none; display:none; transition:all .2s }
@@ -66,6 +66,7 @@
     <div class="view" id="ov"><canvas></canvas><div class="drag"></div><div class="ph"></div></div>
     <div class="view" id="zm"><canvas></canvas><div class="drag"></div><div class="ph"></div></div>
     <div class="bar"><button id="play">▶</button><span id="time">0:00.0</span><b id="selname"></b>
+      <button id="slower" title="Más lento (-)">−</button><span id="rate">1.00×</span><button id="faster" title="Más rápido (+)">+</button>
       <select id="ai" title="Dividir la canción con IA (reemplaza los checkpoints)">
         <option value="">✨ Dividir con IA…</option>
         <option value="structure">Por estructura y compases (allin1, ~½× la duración)</option>
@@ -76,8 +77,8 @@
       Onda superior: canción completa. Onda inferior: zoom de la sección en bucle.<br>
       <b>Arrastrar</b> sobre la onda crea un checkpoint; se anida solo dentro del que lo contiene (y adopta los que queden dentro).<br>
       <b>Click</b> en la onda: saltar · <b>click</b> en una barra o en el árbol: repetir esa sección · <b>doble click</b> en el árbol: renombrar.<br>
-      <b>Espacio</b> play/pausa · <b>[</b> marca inicio · <b>]</b> crea sección hasta el cursor (tocando en vivo).<br>
-      <b>← →</b> sección anterior/siguiente · <b>↑</b> subir al checkpoint padre · <b>↓</b> entrar al primer hijo.<br>
+      <b>Espacio</b> play/pausa · <b>(</b> marca inicio · <b>)</b> crea sección hasta el cursor (tocando en vivo).<br>
+      <b>-</b>/<b>+</b> velocidad (±5%) · <b>← →</b> sección anterior/siguiente · <b>↑</b> subir al checkpoint padre · <b>↓</b> entrar al primer hijo.<br>
       <b>1–9</b> periodo n · <b>⇧1–9</b> fragmento n del periodo actual · <b>0</b> canción completa. Los checkpoints se guardan solos en el servidor.
     </p>
   </section>
@@ -109,9 +110,10 @@
         <li><kbd>Espacio</kbd> play / pausa</li>
         <li><kbd>1</kbd>–<kbd>9</kbd> periodo n · <kbd>0</kbd> canción completa</li>
         <li><kbd>⇧</kbd> + <kbd>1</kbd>–<kbd>9</kbd> fragmento n del periodo actual</li>
+        <li><kbd>-</kbd> <kbd>+</kbd> velocidad −/+ 5% (también los botones)</li>
         <li><kbd>←</kbd> <kbd>→</kbd> sección anterior / siguiente</li>
         <li><kbd>↑</kbd> checkpoint padre · <kbd>↓</kbd> primer hijo</li>
-        <li><kbd>[</kbd> marca el inicio, luego <kbd>]</kbd> crea la sección mientras suena</li>
+        <li><kbd>(</kbd> marca el inicio, luego <kbd>)</kbd> crea la sección mientras suena</li>
         <li><kbd>?</kbd> abre esta guía · <kbd>Esc</kbd> la cierra</li>
       </ul>
       <h2>Conviene saber</h2>
@@ -132,8 +134,8 @@ const LANE = 18;
 let ctx, buf, root, sel, songId, src = null, startedAt = 0, offset = 0, mark = null;
 
 const views = [
-  { el: $('#ov'), h: 90, range: () => [0, root.end] },
-  { el: $('#zm'), h: 160, range: () => [sel.start, sel.end] },
+  { el: $('#ov'), h: 50, range: () => [0, root.end] },
+  { el: $('#zm'), h: 50, range: () => [sel.start, sel.end] },
 ];
 
 const status = t => $('#status').textContent = t;
@@ -170,7 +172,7 @@ async function load(q) {
 // --- playback: native sample-accurate loop over the selected section ---
 function pos() {
   if (!src) return offset;
-  const p = offset + ctx.currentTime - startedAt;
+  const p = offset + (ctx.currentTime - startedAt) * rate;
   return p < sel.end ? p : sel.start + (p - sel.start) % (sel.end - sel.start);
 }
 function play(at = offset) {
@@ -182,11 +184,19 @@ function play(at = offset) {
   src.loop = true;
   src.loopStart = sel.start;
   src.loopEnd = sel.end;
+  src.playbackRate.value = rate;
   src.connect(ctx.destination);
   src.start(0, at);
   startedAt = ctx.currentTime;
   offset = at;
   $('#play').textContent = '⏸';
+}
+let rate = 1; // ponytail: playbackRate also shifts pitch; add a time-stretch lib if that matters
+function setRate(d) {
+  const p = pos();
+  rate = Math.min(2, Math.max(0.25, Math.round((rate + d) * 20) / 20));
+  if (src) { offset = p; startedAt = ctx.currentTime; src.playbackRate.value = rate; }
+  $('#rate').textContent = rate.toFixed(2) + '×';
 }
 function stop() {
   if (!src) return;
@@ -404,6 +414,8 @@ $('#ai').onchange = async e => {
     e.target.disabled = false;
   }
 };
+$('#slower').onclick = () => setRate(-0.05);
+$('#faster').onclick = () => setRate(0.05);
 onresize = () => buf && render();
 onkeydown = e => {
   if (!buf || e.target.tagName === 'INPUT') return;
@@ -422,8 +434,10 @@ onkeydown = e => {
     const r = e.shiftKey ? per?.children[n - 1] : root.children[n - 1];
     if (r) select(r);
   }
-  if (e.key === '[') { mark = pos(); status(`Inicio marcado en ${fmt(mark)} — pulsa ] para cerrar`); }
-  if (e.key === ']' && mark != null) { const p = pos(); if (p > mark) add(mark, p); mark = null; status(root.name); }
+  if (e.key === '-') setRate(-0.05);
+  if (e.key === '+' || e.key === '=') setRate(0.05);
+  if (e.key === '(') { mark = pos(); status(`Inicio marcado en ${fmt(mark)} — pulsa ) para cerrar`); }
+  if (e.key === ')' && mark != null) { const p = pos(); if (p > mark) add(mark, p); mark = null; status(root.name); }
 };
 
 (function tick() {
