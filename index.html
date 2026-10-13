@@ -67,6 +67,7 @@
     <div class="view" id="zm"><canvas></canvas><div class="drag"></div><div class="ph"></div></div>
     <div class="bar"><button id="play">▶</button><span id="time">0:00.0</span><b id="selname"></b>
       <button id="slower" title="Más lento (-)">−</button><span id="rate">1.00×</span><button id="faster" title="Más rápido (+)">+</button>
+      <button id="metro" title="Metrónomo (M) · calibrar: T al ritmo">🥁</button>
       <select id="ai" title="Dividir la canción con IA (reemplaza los checkpoints)">
         <option value="">✨ Dividir con IA…</option>
         <option value="structure">Por estructura y compases (allin1, ~½× la duración)</option>
@@ -78,6 +79,7 @@
       <b>Arrastrar</b> sobre la onda crea un checkpoint; se anida solo dentro del que lo contiene (y adopta los que queden dentro).<br>
       <b>Click</b> en la onda: saltar · <b>click</b> en una barra o en el árbol: repetir esa sección · <b>doble click</b> en el árbol: renombrar.<br>
       <b>Espacio</b> play/pausa · <b>(</b> marca inicio · <b>)</b> crea sección hasta el cursor (tocando en vivo).<br>
+      <b>T</b> toca el ritmo (4+ veces) para calibrar el metrónomo · <b>M</b> lo activa · <b>[</b>/<b>]</b> desfase ±10 ms.<br>
       <b>-</b>/<b>+</b> velocidad (±5%) · <b>← →</b> sección anterior/siguiente · <b>↑</b> subir al checkpoint padre · <b>↓</b> entrar al primer hijo.<br>
       <b>1–9</b> periodo n · <b>⇧1–9</b> fragmento n del periodo actual · <b>0</b> canción completa. Los checkpoints se guardan solos en el servidor.
     </p>
@@ -114,6 +116,7 @@
         <li><kbd>←</kbd> <kbd>→</kbd> sección anterior / siguiente</li>
         <li><kbd>↑</kbd> checkpoint padre · <kbd>↓</kbd> primer hijo</li>
         <li><kbd>(</kbd> marca el inicio, luego <kbd>)</kbd> crea la sección mientras suena</li>
+        <li><kbd>T</kbd> tap al ritmo (4+) calibra el metrónomo · <kbd>M</kbd> on/off · <kbd>[</kbd> <kbd>]</kbd> desfase</li>
         <li><kbd>?</kbd> abre esta guía · <kbd>Esc</kbd> la cierra</li>
       </ul>
       <h2>Conviene saber</h2>
@@ -121,7 +124,7 @@
         <li>Los checkpoints se guardan solos en el servidor.</li>
         <li>La URL (<kbd>#id</kbd>) recarga la misma canción; compártela o guárdala.</li>
         <li>La primera descarga tarda unos segundos; después queda en caché.</li>
-        <li>Si YouTube deja de descargar, reconstruye la imagen para actualizar yt-dlp.</li>
+        <li>Si YouTube deja de descargar, reinicia el servidor con <kbd>uv run --refresh server.py</kbd> para actualizar yt-dlp.</li>
       </ul>
     </div>
     <button class="go">Empezar</button>
@@ -157,6 +160,7 @@ async function load(q) {
     status('Procesando audio…');
     buf = await ctx.decodeAudioData(await (await fetch(`data/${j.id}.mp3`)).arrayBuffer());
     songId = j.id;
+    flux = null; beats = []; taps = [];
     location.hash = j.id;
     const saved = await fetch(`data/${j.id}.json`, { cache: 'no-store' });
     root = saved.ok ? await saved.json() : { name: j.title, start: 0, end: buf.duration, children: [] };
@@ -195,6 +199,7 @@ let rate = 1; // ponytail: playbackRate also shifts pitch; add a time-stretch li
 function setRate(d) {
   const p = pos();
   rate = Math.min(2, Math.max(0.25, Math.round((rate + d) * 20) / 20));
+  done.clear();
   if (src) { offset = p; startedAt = ctx.currentTime; src.playbackRate.value = rate; }
   $('#rate').textContent = rate.toFixed(2) + '×';
 }
@@ -216,6 +221,85 @@ function select(r) {
 function seek(t) {
   if (t < sel.start || t >= sel.end) { sel = root; render(); }
   src ? play(t) : offset = t;
+}
+
+// --- metronome: tap (T) to calibrate, snapped to audio onsets, then tracked across the whole song; M toggles ---
+let beats = [], taps = [], metro = false, mOff = 0, flux;
+const done = new Map(); // beat → audio time already scheduled
+function onsets() { // onset strength per 512-sample frame: rise in log-energy
+  if (flux) return flux;
+  const d = buf.getChannelData(0), n = d.length >> 9;
+  let prev = 0;
+  flux = new Float32Array(n);
+  for (let f = 0; f < n; f++) {
+    let e = 0;
+    for (let i = f << 9, j = i + 512; i < j; i++) e += d[i] * d[i];
+    e = Math.log(1 + 1e4 * e / 512);
+    flux[f] = Math.max(0, e - prev);
+    prev = e;
+  }
+  return flux;
+}
+function peak(t, w) { // time of the strongest onset within ±w seconds of t (t itself if silent)
+  const f = onsets(), fr = 512 / buf.sampleRate;
+  let best = 0, bt = t;
+  for (let i = Math.max(0, Math.round((t - w) / fr)); i <= Math.min(f.length - 1, Math.round((t + w) / fr)); i++)
+    if (f[i] > best) { best = f[i]; bt = (i + 0.5) * fr; }
+  return bt;
+}
+function tap() {
+  const t = pos();
+  if (taps.length && (t <= taps.at(-1) || t - taps.at(-1) > 2)) taps = [];
+  taps.push(t);
+  if (taps.length < 4) return status(`Tap ${taps.length}… (mínimo 4)`);
+  let T = taps.slice(1).map((x, i) => x - taps[i]).sort((a, b) => a - b)[(taps.length - 1) >> 1]; // median interval
+  const s = taps.map(x => peak(x, Math.min(0.08, 0.3 * T))); // humans tap early/late: snap to the nearest onset
+  const n = s.map(x => Math.round((x - s[0]) / T)), N = s.length;
+  const mn = n.reduce((a, b) => a + b) / N, ms = s.reduce((a, b) => a + b) / N;
+  let num = 0, den = 0;
+  n.forEach((k, i) => { num += (k - mn) * (s[i] - ms); den += (k - mn) ** 2; });
+  if (den > 0) T = num / den; // least-squares period over the taps
+  const a = s.at(-1), T0 = T;
+  const walk = dir => { // follow the pulse from the last tap: predict, snap to the onset, correct phase and (slowly) tempo
+    const out = [];
+    for (let b = a, P = T0; ;) {
+      const q = b + dir * P;
+      if (q < 0 || q > buf.duration) return out;
+      const e = peak(q, 0.12 * P) - q;
+      out.push(b = q + 0.4 * e);
+      P = Math.min(1.2 * T0, Math.max(0.8 * T0, P + dir * 0.04 * e));
+    }
+  };
+  beats = [...walk(-1).reverse(), a, ...walk(1)];
+  metro = true;
+  render();
+  status(`Metrónomo: ${(60 / T).toFixed(1)} BPM · desfase ${mOff} ms ([ ] ajusta)`);
+}
+function click(at) {
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.frequency.value = 1000;
+  o.connect(g).connect(ctx.destination);
+  g.gain.setValueAtTime(0.4, at);
+  g.gain.exponentialRampToValueAtTime(0.001, at + 0.04);
+  o.start(at);
+  o.stop(at + 0.05);
+}
+setInterval(() => { // lookahead scheduler on the audio clock, follows the section loop and playbackRate
+  if (!metro || !src || !beats.length) return;
+  const p = pos(), L = 0.12 * rate, now = ctx.currentTime, len = sel.end - sel.start;
+  for (const b of beats) {
+    const x = b + mOff / 1000;
+    if (x < sel.start || x >= sel.end) continue;
+    let d = x - p;
+    if (d < 0) d += len;
+    const at = now + d / rate;
+    if (d < L && Math.abs((done.get(b) ?? -9) - at) > 0.02) { click(at); done.set(b, at); }
+  }
+}, 25);
+function toggleMetro() {
+  metro = !metro && beats.length > 0;
+  status(metro ? 'Metrónomo activado' : beats.length ? 'Metrónomo apagado' : 'Pulsa T al ritmo (4+ veces) para calibrar');
+  $('#metro').style.background = metro ? 'var(--acc)' : '';
 }
 
 // --- checkpoints tree ---
@@ -261,6 +345,11 @@ function draw(v) {
     let lo = 0, hi = 0;
     for (let i = a; i < b; i += step) { const s = data[i]; if (s < lo) lo = s; if (s > hi) hi = s; }
     g.fillRect(x, mid - hi * mid, 1, Math.max(1, (hi - lo) * mid));
+  }
+
+  if (beats.length > 1 && X(beats[1]) - X(beats[0]) >= 4) {
+    g.fillStyle = '#ffffff40';
+    for (const b of beats) if (b >= t0 && b <= t1) g.fillRect(X(b), 0, 1, v.h);
   }
 
   g.font = '12px system-ui';
@@ -397,10 +486,12 @@ $('#ai').onchange = async e => {
   const mode = e.target.value, id = songId;
   e.target.value = '';
   if (!buf || !mode || root.children.length && !confirm('¿Reemplazar los checkpoints actuales por los de la IA?')) return;
+  const secs = mode === 'structure' ? parseInt(prompt('Segundos aproximados por fragmento (0 = 4 compases)', '0')) : 0;
+  if (!(secs >= 0 && secs < 1000)) return;
   e.target.disabled = true;
   status('Analizando con IA… la primera vez tarda unos minutos');
   try {
-    const res = await fetch(`/api/split?id=${id}&mode=${mode}`);
+    const res = await fetch(`/api/split?id=${id}&mode=${mode}&secs=${secs}`);
     const j = await res.json();
     if (!res.ok) throw new Error(j.error);
     if (id !== songId) return; // another song was loaded meanwhile
@@ -414,6 +505,7 @@ $('#ai').onchange = async e => {
     e.target.disabled = false;
   }
 };
+$('#metro').onclick = e => { e.target.blur(); toggleMetro(); };
 $('#slower').onclick = () => setRate(-0.05);
 $('#faster').onclick = () => setRate(0.05);
 onresize = () => buf && render();
@@ -434,6 +526,11 @@ onkeydown = e => {
     const r = e.shiftKey ? per?.children[n - 1] : root.children[n - 1];
     if (r) select(r);
   }
+  if (!e.metaKey && !e.ctrlKey && !e.repeat) {
+    if (e.key === 't') tap();
+    if (e.key === 'm') toggleMetro();
+  }
+  if (e.key === '[' || e.key === ']') { mOff += e.key === ']' ? 10 : -10; status(`Desfase del metrónomo: ${mOff} ms`); }
   if (e.key === '-') setRate(-0.05);
   if (e.key === '+' || e.key === '=') setRate(0.05);
   if (e.key === '(') { mark = pos(); status(`Inicio marcado en ${fmt(mark)} — pulsa ) para cerrar`); }
