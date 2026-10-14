@@ -19,7 +19,7 @@ Instaladores para macOS, Linux y Windows en [Releases](https://github.com/ivanro
 Requiere [uv](https://docs.astral.sh/uv/), `ffmpeg` y `deno` en el PATH (uv instala yt-dlp solo).
 
 ```sh
-brew install ffmpeg deno   # macOS
+./install.sh   # instala uv, ffmpeg y deno si faltan (brew o apt)
 uv run server.py
 ```
 
@@ -43,7 +43,9 @@ Abre http://localhost:8000
 | 0 | Canción completa |
 | ← → | Sección anterior / siguiente |
 | ↑ / ↓ | Checkpoint padre / primer hijo |
-| [ y luego ] | Crear sección marcando inicio y fin mientras suena |
+| ( y luego ) | Crear sección marcando inicio y fin mientras suena |
+| - / + | Velocidad −/+ 5 % |
+| ? / Esc | Abrir / cerrar la guía |
 
 Doble click en el árbol: renombrar. ✕: borrar (sus hijos suben un nivel).
 

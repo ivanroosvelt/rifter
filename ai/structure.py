@@ -63,21 +63,23 @@ def install_shim():
     sys.modules['natten.functional'] = fn
 
 
-def periods(r):
+def periods(r, secs=0):
     out, seen = [], {}
+    # fragment = whole bars closest to secs seconds; secs=0 keeps BARS
+    n = max(1, round(secs / ((r.downbeats[-1] - r.downbeats[0]) / (len(r.downbeats) - 1)))) if secs and len(r.downbeats) > 1 else BARS
     for s in r.segments:
         if s.label in ('start', 'end') or s.end - s.start < 1:
             continue  # silence before/after the song
         seen[s.label] = seen.get(s.label, 0) + 1
         bars = [t for t in r.downbeats if s.start - 0.2 <= t < s.end]  # sections start ~on a downbeat
-        cuts = [s.start] + bars[BARS::BARS]
+        cuts = [s.start] + bars[n::n]
         if len(cuts) > 1 and s.end - cuts[-1] < (cuts[-1] - cuts[-2]) / 2:
             cuts.pop()  # a short leftover joins the previous fragment
         cuts.append(s.end)
         out.append({
             'name': f"{NAMES.get(s.label, s.label.capitalize())} {seen[s.label]}",
             'start': s.start, 'end': s.end,
-            'children': [{'name': f'Compases {i * BARS + 1}–{(i + 1) * BARS}', 'start': a, 'end': b, 'children': []}
+            'children': [{'name': f'Compases {i * n + 1}–{(i + 1) * n}', 'start': a, 'end': b, 'children': []}
                          for i, (a, b) in enumerate(zip(cuts, cuts[1:]))] if len(cuts) > 2 else [],
         })
     return out
@@ -91,4 +93,4 @@ if __name__ == '__main__':
     device = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
     with tempfile.TemporaryDirectory() as tmp:
         r = allin1.analyze(sys.argv[1], device=device, demix_dir=f'{tmp}/demix', spec_dir=f'{tmp}/spec', multiprocess=False)
-    os.write(out, json.dumps(periods(r)).encode())
+    os.write(out, json.dumps(periods(r, float(sys.argv[2]) if len(sys.argv) > 2 else 0)).encode())
