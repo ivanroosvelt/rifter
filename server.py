@@ -104,7 +104,8 @@ class Handler(SimpleHTTPRequestHandler):
             except subprocess.TimeoutExpired:
                 return self.reply(504, {'error': 'El análisis tardó demasiado'})
             if p.returncode:
-                return self.reply(502, {'error': (p.stderr.strip().splitlines() or ['El análisis falló'])[-1]})
+                error = p.stderr.strip() or 'El análisis falló'
+                return self.reply(502, {'error': error[-4000:]})
             with open(cache, 'w') as f:
                 f.write(p.stdout)
         with open(cache) as f:
