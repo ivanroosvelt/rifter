@@ -16,7 +16,7 @@
     "files": ["main.js"],
     "afterPack": "adhoc.js",
     "extraResources": [{ "from": "resources", "to": "." }],
-    "mac": { "target": ["dmg"], "category": "public.app-category.music" },
+    "mac": { "target": ["dmg"], "category": "public.app-category.music", "extendInfo": { "NSMicrophoneUsageDescription": "Rifter usa el micrófono para el afinador." } },
     "linux": { "target": ["AppImage"], "category": "Audio" },
     "win": { "target": ["nsis"] }
   }
